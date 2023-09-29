@@ -10,8 +10,6 @@
 #include <erl_nif.h>
 #include <sqlite3.h>
 
-#include "utf8.h"
-
 #define MAX_ATOM_LENGTH 255
 #define MAX_PATHNAME 512
 
@@ -101,6 +99,7 @@ static ERL_NIF_TERM make_binary(ErlNifEnv* env, const void* bytes,
   ERL_NIF_TERM term;
 
   if (!enif_alloc_binary(size, &blob)) {
+    // TODO raise
     return make_atom(env, "out_of_memory");
   }
 
@@ -126,7 +125,7 @@ static ERL_NIF_TERM make_error_tuple_with_message(ErlNifEnv* env, int rc,
 
   return enif_make_tuple3(env, make_atom(env, "error"),
                           enif_make_int64(env, rc),
-                          make_binary(env, message, utf8len(message)));
+                          make_binary(env, message, strlen(message)));
 }
 
 static ERL_NIF_TERM exqlite_open(ErlNifEnv* env, int argc,
@@ -150,6 +149,8 @@ static ERL_NIF_TERM exqlite_open(ErlNifEnv* env, int argc,
     sqlite3_close_v2(db);
     return make_error_tuple(env, -1);
   }
+
+  sqlite3_extended_result_codes(db, 1);
 
   conn->db = db;
   ERL_NIF_TERM result = enif_make_resource(env, conn);
@@ -275,11 +276,14 @@ static ERL_NIF_TERM exqlite_prepare(ErlNifEnv* env, int argc,
 static int bind(ErlNifEnv* env, const ERL_NIF_TERM arg, sqlite3_stmt* statement,
                 int index) {
   int i;
-  if (enif_get_int(env, arg, &i)) return sqlite3_bind_int(statement, index, i);
+  if (enif_get_int(env, arg, &i)) {
+    return sqlite3_bind_int(statement, index, i);
+  }
 
   ErlNifSInt64 i64;
-  if (enif_get_int64(env, arg, &i64))
+  if (enif_get_int64(env, arg, &i64)) {
     return sqlite3_bind_int64(statement, index, i64);
+  }
 
   double f32;
   if (enif_get_double(env, arg, &f32))
@@ -287,10 +291,10 @@ static int bind(ErlNifEnv* env, const ERL_NIF_TERM arg, sqlite3_stmt* statement,
 
   char a[MAX_ATOM_LENGTH + 1];
   if (enif_get_atom(env, arg, a, sizeof(a), ERL_NIF_LATIN1)) {
-    if (0 == utf8cmp("undefined", a) || 0 == utf8cmp("nil", a))
+    if (0 == strcmp("undefined", a) || 0 == strcmp("nil", a))
       return sqlite3_bind_null(statement, index);
 
-    return sqlite3_bind_text(statement, index, a, utf8len(a), SQLITE_TRANSIENT);
+    return sqlite3_bind_text(statement, index, a, strlen(a), SQLITE_TRANSIENT);
   }
 
   ErlNifBinary bin;
@@ -306,7 +310,7 @@ static int bind(ErlNifEnv* env, const ERL_NIF_TERM arg, sqlite3_stmt* statement,
     if (arity != 2) return -1;
 
     if (enif_get_atom(env, tuple[0], a, sizeof(a), ERL_NIF_LATIN1)) {
-      if (0 == utf8ncmp("blob", a, 4)) {
+      if (0 == strcmp("blob", a)) {
         if (enif_inspect_iolist_as_binary(env, tuple[1], &bin)) {
           return sqlite3_bind_blob(statement, index, bin.data, bin.size,
                                    SQLITE_TRANSIENT);
@@ -337,6 +341,8 @@ static ERL_NIF_TERM exqlite_bind(ErlNifEnv* env, int argc,
   if (!enif_get_list_length(env, argv[2], &argument_list_length)) {
     return enif_make_badarg(env);
   }
+
+  // sqlite3_reset(statement->statement);
 
   unsigned int parameter_count =
       (unsigned int)sqlite3_bind_parameter_count(statement->statement);
@@ -436,10 +442,6 @@ static ERL_NIF_TERM exqlite_multi_step(ErlNifEnv* env, int argc,
 
     int rc = sqlite3_step(statement->statement);
     switch (rc) {
-      case SQLITE_BUSY:
-        sqlite3_reset(statement->statement);
-        return make_error_tuple(env, rc);
-
       case SQLITE_DONE:
         return enif_make_tuple2(env, make_atom(env, "done"), rows);
 
@@ -481,6 +483,56 @@ static ERL_NIF_TERM exqlite_step(ErlNifEnv* env, int argc,
   }
 }
 
+static ERL_NIF_TERM exqlite_multi_bind_step(ErlNifEnv* env, int argc,
+                                            const ERL_NIF_TERM argv[]) {
+  connection_t* conn = NULL;
+  if (!enif_get_resource(env, argv[0], connection_type, (void**)&conn)) {
+    return enif_make_badarg(env);
+  }
+
+  statement_t* statement = NULL;
+  if (!enif_get_resource(env, argv[1], statement_type, (void**)&statement)) {
+    return enif_make_badarg(env);
+  }
+
+  unsigned int parameter_count =
+      (unsigned int)sqlite3_bind_parameter_count(statement->statement);
+
+  ERL_NIF_TERM outer_list;
+  ERL_NIF_TERM outer_head;
+  ERL_NIF_TERM outer_tail;
+  ERL_NIF_TERM inner_list;
+  ERL_NIF_TERM inner_head;
+  ERL_NIF_TERM inner_tail;
+
+  outer_list = argv[2];
+
+  while (enif_get_list_cell(env, outer_list, &inner_list, &outer_tail)) {
+    for (unsigned int j = 0; j < parameter_count; j++) {
+      enif_get_list_cell(env, inner_list, &inner_head, &inner_tail);
+
+      int rc = bind(env, inner_head, statement->statement, j + 1);
+      if (rc == -1) return make_error_tuple(env, rc);
+
+      if (rc != SQLITE_OK)
+        return make_error_tuple_with_message(env, rc, sqlite3_errmsg(conn->db));
+
+      inner_list = inner_tail;
+    }
+
+    int rc = sqlite3_step(statement->statement);
+
+    if (rc != SQLITE_DONE) {
+      return make_error_tuple_with_message(env, rc, sqlite3_errmsg(conn->db));
+    }
+
+    sqlite3_reset(statement->statement);
+    outer_list = outer_tail;
+  }
+
+  return make_atom(env, "ok");
+}
+
 // static ERL_NIF_TERM exqlite_columns(ErlNifEnv* env, int argc,
 //                                     const ERL_NIF_TERM argv[]) {
 //   assert(env);
@@ -512,7 +564,7 @@ static ERL_NIF_TERM exqlite_step(ErlNifEnv* env, int argc,
 //   }
 
 //   columns = enif_alloc(sizeof(ERL_NIF_TERM) * size);
-//   if (!columns) {
+//   if (!columns) { // TODO raise
 //     return make_error_tuple(env, "out_of_memory");
 //   }
 
@@ -520,7 +572,7 @@ static ERL_NIF_TERM exqlite_step(ErlNifEnv* env, int argc,
 //     const char* name = sqlite3_column_name(statement->statement, i);
 //     if (!name) {
 //       enif_free(columns);
-//       return make_error_tuple(env, "out_of_memory");
+//       return make_error_tuple(env, "out_of_memory"); // TODO raise
 //     }
 
 //     columns[i] = make_binary(env, name, utf8len(name));
@@ -838,6 +890,7 @@ static ErlNifFunc nif_funcs[] = {
     {"bind", 3, exqlite_bind, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"step", 2, exqlite_step, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"multi_step", 3, exqlite_multi_step, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"multi_bind_step", 3, exqlite_multi_bind_step, ERL_NIF_DIRTY_JOB_IO_BOUND},
     // {"columns", 2, exqlite_columns, ERL_NIF_DIRTY_JOB_IO_BOUND},
     // {"last_insert_rowid", 1, exqlite_last_insert_rowid,
     //  ERL_NIF_DIRTY_JOB_IO_BOUND},

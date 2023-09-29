@@ -16,5 +16,6 @@ defmodule SQLite.Nif do
   def bind(_db, _stmt, _args), do: :erlang.nif_error(:not_loaded)
   def step(_db, _stmt), do: :erlang.nif_error(:not_loaded)
   def multi_step(_db, _stmt, _count), do: :erlang.nif_error(:not_loaded)
+  def multi_bind_step(_db, _stmt, _args), do: :erlang.nif_error(:not_loaded)
   def finalize(_stmt), do: :erlang.nif_error(:not_loaded)
 end

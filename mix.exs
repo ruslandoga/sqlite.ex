@@ -23,6 +23,7 @@ defmodule SQLite.MixProject do
   defp deps do
     [
       {:benchee, "~> 1.1", only: [:bench]},
+      {:exqlite, "~> 0.14.0", only: [:bench]},
       {:elixir_make, "~> 0.7", runtime: false}
     ]
   end

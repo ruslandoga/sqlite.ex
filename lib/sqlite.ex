@@ -23,10 +23,77 @@ defmodule SQLite do
   @spec bind(db, stmt, [term]) :: :ok | {:error, Error.t()}
   def bind(db, stmt, args), do: wrap_error(Nif.bind(db, stmt, args))
 
+  @spec step(db, stmt) :: {:row, [term]} | :done | {:error, Error.t()}
+  def step(db, stmt), do: wrap_error(Nif.step(db, stmt))
+
   @spec finalize(stmt) :: :ok | {:error, Error.t()}
   def finalize(stmt), do: wrap_error(Nif.finalize(stmt))
+
+  @spec multi_step(db, stmt, pos_integer) ::
+          {:rows, [[term]]} | {:done, [[term]]} | {:error, Error.t()}
+  def multi_step(db, stmt, max_rows) do
+    case Nif.multi_step(db, stmt, max_rows) do
+      {:rows, rows} -> {:rows, :lists.reverse(rows)}
+      {:done, rows} -> {:done, :lists.reverse(rows)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @spec multi_bind_step(db, stmt, [[term]]) :: :ok | {:error, Error.t()}
+  def multi_bind_step(db, stmt, args), do: wrap_error(Nif.multi_bind_step(db, stmt, args))
 
   defp wrap_error({:error = e, rc}), do: {e, Error.exception(code: rc)}
   defp wrap_error({:error = e, rc, msg}), do: {e, Error.exception(code: rc, message: msg)}
   defp wrap_error(success), do: success
+
+  @spec fetch_all(db, stmt, pos_integer) :: {:ok, [[term]]} | {:error, Error.t()}
+  def fetch_all(db, stmt, max_rows) when is_reference(stmt) do
+    {:ok, try_fetch_all(db, stmt, max_rows)}
+  catch
+    :throw, {:error, _reason} = error -> error
+  end
+
+  @spec fetch_all(db, iodata, [term], pos_integer) :: {:ok, [[term]]} | {:error, Error.t()}
+  def fetch_all(db, sql, args, max_rows) do
+    with {:ok, stmt} <- prepare(db, sql) do
+      try do
+        with :ok <- bind(db, stmt, args) do
+          fetch_all(db, stmt, max_rows)
+        end
+      after
+        :ok = finalize(stmt)
+      end
+    end
+  end
+
+  defp try_fetch_all(db, stmt, max_rows) do
+    case multi_step(db, stmt, max_rows) do
+      {:done, rows} -> rows
+      {:rows, rows} -> rows ++ try_fetch_all(db, stmt, max_rows)
+      {:error, _reason} = error -> throw(error)
+    end
+  end
+
+  @spec insert_all(db, stmt | iodata, [[term]]) :: :ok | {:error, Error.t()}
+  def insert_all(db, stmt, rows) when is_reference(stmt) do
+    :ok = execute(db, "begin")
+
+    with :ok <- multi_bind_step(db, stmt, rows), :ok = ok <- execute(db, "commit") do
+      ok
+    else
+      {:error, _reason} = error ->
+        :ok = execute(db, "rollback")
+        error
+    end
+  end
+
+  def insert_all(db, sql, rows) do
+    with {:ok, stmt} <- prepare(db, sql) do
+      try do
+        insert_all(db, stmt, rows)
+      after
+        :ok = finalize(stmt)
+      end
+    end
+  end
 end

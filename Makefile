@@ -40,7 +40,7 @@ endif
 ifneq ($(DEBUG),)
 	CFLAGS += -g
 else
-	CFLAGS += -DNDEBUG=1 -O2
+	CFLAGS += -DNDEBUG=1 -O3
 endif
 
 KERNEL_NAME := $(shell uname -s)

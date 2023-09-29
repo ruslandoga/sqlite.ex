@@ -1,5 +1,6 @@
 defmodule SQLiteTest do
   use ExUnit.Case
+  # import Bitwise
 
   describe "open" do
     test ":memory:" do
@@ -53,8 +54,35 @@ defmodule SQLiteTest do
   end
 
   describe "step" do
+    test "select 1, '2', 3.0" do
+      {:ok, db} = SQLite.open(~c":memory:", _readonly = 0x1)
+      on_exit(fn -> :ok = SQLite.close(db) end)
+      {:ok, stmt} = SQLite.prepare(db, "select 1, '2', 3.0")
+      on_exit(fn -> :ok = SQLite.finalize(stmt) end)
+      assert {:row, [1, "2", 3.0]} = SQLite.step(db, stmt)
+      assert :done = SQLite.step(db, stmt)
+    end
   end
 
   describe "multi_step" do
+  end
+
+  describe "fetch_all" do
+  end
+
+  describe "multi_bind_step" do
+    test "it works" do
+      {:ok, db} = SQLite.open(~c":memory:", 0x00000002)
+      on_exit(fn -> :ok = SQLite.close(db) end)
+      :ok = SQLite.execute(db, "create table users(name text, age integer) strict")
+      {:ok, stmt} = SQLite.prepare(db, "insert into users(name, age) values (?, ?)")
+      on_exit(fn -> :ok = SQLite.finalize(stmt) end)
+      :ok = SQLite.execute(db, "begin")
+      :ok = SQLite.multi_bind_step(db, stmt, [["john", 10], ["benedict", 12], ["abc", 99]])
+      :ok = SQLite.execute(db, "commit")
+
+      {:ok, rows} = SQLite.fetch_all(db, "select * from users", [], 10)
+      assert rows == [["john", 10], ["benedict", 12], ["abc", 99]]
+    end
   end
 end

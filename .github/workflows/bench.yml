@@ -1,0 +1,51 @@
+name: bench
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  mix:
+    runs-on: ubuntu-latest
+
+    env:
+      MIX_ENV: bench
+
+    strategy:
+      matrix:
+        elixir: ["1.15"]
+        otp: ["26"]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - uses: actions/cache@v3
+        with:
+          path: |
+            deps
+            _build
+          key: bench-otp-${{ matrix.otp }}-elixir-${{ matrix.elixir }}-ref-${{ github.head_ref || github.ref }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            bench-otp-${{ matrix.otp }}-elixir-${{ matrix.elixir }}-ref-${{ github.head_ref || github.ref }}-mix-
+            bench-otp-${{ matrix.otp }}-elixir-${{ matrix.elixir }}-ref-refs/heads/master-mix-
+
+      - run: mix deps.get --only $MIX_ENV
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mkdir results
+      - run: mix run bench/prepare.exs | tee results/prepare.txt
+      - run: mix run bench/bind.exs | tee results/bind.txt
+      - run: mix run bench/insert_all.exs | tee results/insert_all.txt
+      - run: mix run bench/fetch_all.exs | tee results/fetch_all.txt
+      - run: mix run bench/parallel.exs | tee results/parallel.txt
+      - uses: actions/upload-artifact@v3
+        with:
+          name: results
+          path: results/*.txt
