@@ -459,6 +459,11 @@ static ERL_NIF_TERM exqlite_multi_step(ErlNifEnv* env, int argc,
   return enif_make_tuple2(env, make_atom(env, "rows"), rows);
 }
 
+static ERL_NIF_TERM exqlite_fetch_all_yielding(ErlNifEnv* env, int argc,
+                                               const ERL_NIF_TERM argv[]) {
+  return make_atom(env, "todo");
+}
+
 static ERL_NIF_TERM exqlite_step(ErlNifEnv* env, int argc,
                                  const ERL_NIF_TERM argv[]) {
   connection_t* conn = NULL;
@@ -891,6 +896,7 @@ static ErlNifFunc nif_funcs[] = {
     {"step", 2, exqlite_step, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"multi_step", 3, exqlite_multi_step, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"multi_bind_step", 3, exqlite_multi_bind_step, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"fetch_all_yielding", 2, exqlite_fetch_all_yielding},
     // {"columns", 2, exqlite_columns, ERL_NIF_DIRTY_JOB_IO_BOUND},
     // {"last_insert_rowid", 1, exqlite_last_insert_rowid,
     //  ERL_NIF_DIRTY_JOB_IO_BOUND},

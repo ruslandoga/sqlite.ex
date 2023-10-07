@@ -76,7 +76,7 @@ defmodule SQLite do
 
   @spec insert_all(db, stmt | iodata, [[term]]) :: :ok | {:error, Error.t()}
   def insert_all(db, stmt, rows) when is_reference(stmt) do
-    :ok = execute(db, "begin")
+    :ok = execute(db, "savepoint __insert_all")
 
     with :ok <- multi_bind_step(db, stmt, rows), :ok = ok <- execute(db, "commit") do
       ok
@@ -94,6 +94,20 @@ defmodule SQLite do
       after
         :ok = finalize(stmt)
       end
+    end
+  end
+
+  def transact(db, f) when is_function(f, 0) do
+    :ok = execute(db, "begin")
+
+    try do
+      result = f.()
+      :ok = execute(db, "commit")
+      result
+    rescue
+      e ->
+        :ok = execute(db, "rollback")
+        raise e
     end
   end
 end
