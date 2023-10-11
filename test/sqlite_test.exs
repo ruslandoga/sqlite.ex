@@ -104,5 +104,48 @@ defmodule SQLiteTest do
     assert SQLite.get_autocommit(db) == 0
     :ok = SQLite.execute(db, "rollback")
     assert SQLite.get_autocommit(db) == 1
+    {:ok, stmt} = SQLite.prepare(db, "select 1 union select 2")
+    assert SQLite.get_autocommit(db) == 1
+    {:row, [1]} = SQLite.step(db, stmt)
+    assert SQLite.get_autocommit(db) == 1
+    {:row, [2]} = SQLite.step(db, stmt)
+    assert SQLite.get_autocommit(db) == 1
+    :done = SQLite.step(db, stmt)
+    assert SQLite.get_autocommit(db) == 1
+  end
+
+  test "read tx" do
+    database = "test_read_tx.db"
+
+    {:ok, writer} =
+      SQLite.open(to_charlist(database), Bitwise.bor(_readwrite = 0x2, _create = 0x4))
+
+    {:ok, reader} = SQLite.open(to_charlist(database), _readonly = 0x1)
+    :ok = SQLite.execute(writer, "pragma journal_mode=wal")
+
+    on_exit(fn ->
+      :ok = SQLite.close(writer)
+      :ok = SQLite.close(reader)
+      Enum.each([database, database <> "-wal", database <> "-shm"], &File.rm!/1)
+    end)
+
+    :ok = SQLite.execute(writer, "create table users(name text, age integer) strict")
+    :ok = SQLite.execute(writer, "insert into users(name, age) values ('john', 20), ('jane', 20)")
+
+    # opens read tx
+    {:ok, stmt1} = SQLite.prepare(reader, "select name, age from users")
+    {:row, ["john", 20]} = SQLite.step(reader, stmt1)
+
+    # derek not visible
+    :ok = SQLite.execute(writer, "insert into users(name, age) values ('derek', 20)")
+    {:ok, [["john"], ["jane"]]} = SQLite.fetch_all(reader, "select name from users", [], 10)
+
+    {:row, ["jane", 20]} = SQLite.step(reader, stmt1)
+    :done = SQLite.step(reader, stmt1)
+    # closes read tx
+
+    # derek becomes visible
+    {:ok, [["john"], ["jane"], ["derek"]]} =
+      SQLite.fetch_all(reader, "select name from users", [], 10)
   end
 end
