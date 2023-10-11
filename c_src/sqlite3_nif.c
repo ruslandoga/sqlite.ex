@@ -619,31 +619,17 @@ static ERL_NIF_TERM exqlite_multi_bind_step(ErlNifEnv *env, int argc,
 //   return make_ok_tuple(env, enif_make_int64(env, last_rowid));
 // }
 
-// static ERL_NIF_TERM exqlite_transaction_status(ErlNifEnv* env, int argc,
-//                                                const ERL_NIF_TERM argv[]) {
-//   assert(env);
+static ERL_NIF_TERM exqlite_get_autocommit(ErlNifEnv *env, int argc,
+                                           const ERL_NIF_TERM argv[]) {
+  assert(env);
+  connection_t *conn = NULL;
 
-//   connection_t* conn = NULL;
+  if (!enif_get_resource(env, argv[0], connection_type, (void **)&conn))
+    return enif_make_badarg(env);
 
-//   if (argc != 1) {
-//     return enif_make_badarg(env);
-//   }
-
-//   if (!enif_get_resource(env, argv[0], connection_type, (void**)&conn)) {
-//     return make_error_tuple(env, "invalid_connection");
-//   }
-
-//   // If the connection times out, DbConnection disconnects the client
-//   // and then re-opens a new connection. There is a condition where by
-//   // the connection's database is not set but the calling elixir / erlang
-//   // pass an incomplete reference.
-//   if (!conn->db) {
-//     return make_ok_tuple(env, make_atom(env, "error"));
-//   }
-//   int autocommit = sqlite3_get_autocommit(conn->db);
-//   return make_ok_tuple(env, autocommit == 0 ? make_atom(env, "transaction")
-//                                             : make_atom(env, "idle"));
-// }
+  int autocommit = sqlite3_get_autocommit(conn->db);
+  return enif_make_int(env, autocommit);
+}
 
 // static ERL_NIF_TERM exqlite_serialize(ErlNifEnv* env, int argc,
 //                                       const ERL_NIF_TERM argv[]) {
@@ -909,8 +895,7 @@ static ErlNifFunc nif_funcs[] = {
     // {"columns", 2, exqlite_columns, ERL_NIF_DIRTY_JOB_IO_BOUND},
     // {"last_insert_rowid", 1, exqlite_last_insert_rowid,
     //  ERL_NIF_DIRTY_JOB_IO_BOUND},
-    // {"transaction_status", 1, exqlite_transaction_status,
-    //  ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"get_autocommit", 1, exqlite_get_autocommit, ERL_NIF_DIRTY_JOB_IO_BOUND},
     // {"serialize", 2, exqlite_serialize, ERL_NIF_DIRTY_JOB_IO_BOUND},
     // {"deserialize", 3, exqlite_deserialize, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"finalize", 1, exqlite_finalize, ERL_NIF_DIRTY_JOB_IO_BOUND},

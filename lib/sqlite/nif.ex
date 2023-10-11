@@ -20,4 +20,5 @@ defmodule SQLite.Nif do
   def multi_bind_step(_db, _stmt, _args), do: :erlang.nif_error(:not_loaded)
   def finalize(_stmt), do: :erlang.nif_error(:not_loaded)
   def set_update_hook(_db, _pid), do: :erlang.nif_error(:not_loaded)
+  def get_autocommit(_db), do: :erlang.nif_error(:not_loaded)
 end

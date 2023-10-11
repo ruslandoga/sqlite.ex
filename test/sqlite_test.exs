@@ -96,4 +96,13 @@ defmodule SQLiteTest do
     {:ok, []} = SQLite.fetch_all(db, "select * from users", [], 10)
     refute_receive _anything
   end
+
+  test "get_autocommit" do
+    {:ok, db} = SQLite.open(~c":memory:", _readwrite = 0x2)
+    assert SQLite.get_autocommit(db) == 1
+    :ok = SQLite.execute(db, "begin")
+    assert SQLite.get_autocommit(db) == 0
+    :ok = SQLite.execute(db, "rollback")
+    assert SQLite.get_autocommit(db) == 1
+  end
 end

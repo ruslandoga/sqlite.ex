@@ -42,12 +42,14 @@ defmodule SQLite do
   @spec multi_bind_step(db, stmt, [[term]]) :: :ok | {:error, Error.t()}
   def multi_bind_step(db, stmt, args), do: wrap_error(Nif.multi_bind_step(db, stmt, args))
 
-
   @spec set_update_hook(db, pid) :: :ok
-  def set_update_hook(db, pid), do: wrap_error(Nif.set_update_hook(db, pid))
+  def set_update_hook(db, pid), do: Nif.set_update_hook(db, pid)
+
+  @spec get_autocommit(db) :: non_neg_integer
+  def get_autocommit(db), do: Nif.get_autocommit(db)
 
   @spec set_commit_hook(db, pid) :: :ok
-  def set_commit_hook(_db, _pid), do: raise "todo"
+  def set_commit_hook(_db, _pid), do: raise("todo")
 
   defp wrap_error({:error = e, rc}), do: {e, Error.exception(code: rc)}
   defp wrap_error({:error = e, rc, msg}), do: {e, Error.exception(code: rc, message: msg)}
