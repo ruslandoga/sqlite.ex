@@ -64,12 +64,6 @@ defmodule SQLiteTest do
     end
   end
 
-  describe "multi_step" do
-  end
-
-  describe "fetch_all" do
-  end
-
   describe "multi_bind_step" do
     test "it works" do
       {:ok, db} = SQLite.open(~c":memory:", 0x00000002)
@@ -84,5 +78,22 @@ defmodule SQLiteTest do
       {:ok, rows} = SQLite.fetch_all(db, "select * from users", [], 10)
       assert rows == [["john", 10], ["benedict", 12], ["abc", 99]]
     end
+  end
+
+  test "set_update_hook" do
+    {:ok, db} = SQLite.open(~c":memory:", _readwrite = 0x2)
+    on_exit(fn -> :ok = SQLite.close(db) end)
+    :ok = SQLite.set_update_hook(db, self())
+    :ok = SQLite.execute(db, "create table users(name text, age integer) strict")
+    :ok = SQLite.execute(db, "insert into users(name, age) values ('john', 23), ('jane', 32)")
+    assert_receive {:insert, "main", "users", 1}
+    assert_receive {:insert, "main", "users", 2}
+    :ok = SQLite.execute(db, "update users set age = age + 1 where name = 'john'")
+    assert_receive {:update, "main", "users", 1}
+    :ok = SQLite.execute(db, "delete from users where age > 23")
+    assert_receive {:delete, "main", "users", 1}
+    assert_receive {:delete, "main", "users", 2}
+    {:ok, []} = SQLite.fetch_all(db, "select * from users", [], 10)
+    refute_receive _anything
   end
 end

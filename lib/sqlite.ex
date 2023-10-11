@@ -1,6 +1,6 @@
 defmodule SQLite do
   @moduledoc """
-  Documentation for `SQLite`.
+  Basic wrapper for SQLite.
   """
 
   alias SQLite.{Nif, Error}
@@ -42,6 +42,13 @@ defmodule SQLite do
   @spec multi_bind_step(db, stmt, [[term]]) :: :ok | {:error, Error.t()}
   def multi_bind_step(db, stmt, args), do: wrap_error(Nif.multi_bind_step(db, stmt, args))
 
+
+  @spec set_update_hook(db, pid) :: :ok
+  def set_update_hook(db, pid), do: wrap_error(Nif.set_update_hook(db, pid))
+
+  @spec set_commit_hook(db, pid) :: :ok
+  def set_commit_hook(_db, _pid), do: raise "todo"
+
   defp wrap_error({:error = e, rc}), do: {e, Error.exception(code: rc)}
   defp wrap_error({:error = e, rc, msg}), do: {e, Error.exception(code: rc, message: msg)}
   defp wrap_error(success), do: success
@@ -78,7 +85,8 @@ defmodule SQLite do
   def insert_all(db, stmt, rows) when is_reference(stmt) do
     :ok = execute(db, "savepoint __insert_all")
 
-    with :ok <- multi_bind_step(db, stmt, rows), :ok = ok <- execute(db, "commit") do
+    with :ok <- multi_bind_step(db, stmt, rows),
+         :ok = ok <- execute(db, "commit") do
       ok
     else
       {:error, _reason} = error ->
